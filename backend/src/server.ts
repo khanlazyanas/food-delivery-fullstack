@@ -6,6 +6,7 @@ import authRoutes from './routes/authRoutes';
 import menuRoutes from './routes/menuRoutes';
 import orderRoutes from './routes/orderRoutes';
 import bookingRoutes from './routes/bookingRoutes';
+import eventRoutes from './routes/eventRoutes';
 
 
 // Load env vars
@@ -30,6 +31,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes); 
 app.use('/api/orders', orderRoutes);
 app.use('/api/bookings', bookingRoutes)
+app.use('/api/events', eventRoutes)
 
 
 // Start Server
