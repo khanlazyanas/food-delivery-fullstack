@@ -7,6 +7,7 @@ import menuRoutes from './routes/menuRoutes';
 import orderRoutes from './routes/orderRoutes';
 import bookingRoutes from './routes/bookingRoutes';
 import eventRoutes from './routes/eventRoutes';
+import tripRoutes from './routes/tripRoutes';
 
 
 // Load env vars
@@ -32,6 +33,7 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/bookings', bookingRoutes)
 app.use('/api/events', eventRoutes)
+app.use('/api/trips', tripRoutes);
 
 
 // Start Server
