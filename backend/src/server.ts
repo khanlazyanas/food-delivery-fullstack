@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db';
 import authRoutes from './routes/authRoutes';
+import menuRoutes from './routes/menuRoutes';
 
 // Load env vars
 dotenv.config();
@@ -21,7 +22,9 @@ app.get('/', (req: Request, res: Response) => {
   res.send('FoodieHub Backend API is running... 🚀');
 });
 
+// Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/menu', menuRoutes); 
 
 // Start Server
 const PORT = process.env.PORT || 5000;
