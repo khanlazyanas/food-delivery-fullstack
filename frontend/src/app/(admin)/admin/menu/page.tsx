@@ -140,11 +140,11 @@ export default function AdminMenuPage() {
     setEditing(null);
   };
 
-  const handleDelete = (id: number) => {
-    deleteItem(id);
-    setConfirmDelete(null);
-    toast.success("Item deleted");
-  };
+  const handleDelete = (id: string | number) => {
+  deleteItem(id);
+  setConfirmDelete(null);
+  toast.success("Item deleted");
+};
 
   const handleReset = () => {
     if (confirm("Reset all items to default menu? This will delete all your changes.")) {
