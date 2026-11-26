@@ -8,6 +8,7 @@ import orderRoutes from './routes/orderRoutes';
 import bookingRoutes from './routes/bookingRoutes';
 import eventRoutes from './routes/eventRoutes';
 import tripRoutes from './routes/tripRoutes';
+import celebrationRoutes from './routes/celebrationRoutes';
 
 
 // Load env vars
@@ -34,7 +35,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/bookings', bookingRoutes)
 app.use('/api/events', eventRoutes)
 app.use('/api/trips', tripRoutes);
-
+app.use('/api/celebrations', celebrationRoutes);
 
 // Start Server
 const PORT = process.env.PORT || 5000;
