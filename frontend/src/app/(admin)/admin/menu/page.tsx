@@ -18,7 +18,9 @@ import { MenuItem } from "@/lib/menuData";
 import toast from "react-hot-toast";
 
 export default function AdminMenuPage() {
+  // 👇 SAARE HOOKS COMPONENT KE ANDAR HONGE
   const items = useMenuStore((state) => state.items);
+  const fetchMenu = useMenuStore((state) => state.fetchMenu); // 👈 Hook yahan aayega
   const addItem = useMenuStore((state) => state.addItem);
   const updateItem = useMenuStore((state) => state.updateItem);
   const deleteItem = useMenuStore((state) => state.deleteItem);
@@ -32,7 +34,8 @@ export default function AdminMenuPage() {
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<MenuItem | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  // 👇 MongoDB string ID ke liye isko update kiya
+  const [confirmDelete, setConfirmDelete] = useState<string | number | null>(null); 
 
   const [form, setForm] = useState({
     name: "",
@@ -46,11 +49,19 @@ export default function AdminMenuPage() {
     rating: 4.5,
   });
 
+  // 👇 Backend se data fetch karne ke liye
+  useEffect(() => {
+    fetchMenu(); 
+  }, [fetchMenu]);
+
+  // 👇 Local hydration check ke liye
   useEffect(() => {
     useMenuStore.persist.rehydrate();
     useCategoryStore.persist.rehydrate();
     setMounted(true);
   }, []);
+
+  
 
   // Get available subcategories for the current form category from store
   const selectedCategoryData = allCategories.find(c => c.name === form.category);

@@ -1,16 +1,20 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import axios from "axios";
 import { menuItems as initialItems, MenuItem } from "@/lib/menuData";
 
-const STORE_VERSION = 3; 
+const STORE_VERSION = 4; // 👈 Version bump kiya hai backend integration ke liye
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 type MenuStore = {
   items: MenuItem[];
-  addItem: (item: Omit<MenuItem, "id">) => void;
-  updateItem: (id: number, updates: Partial<MenuItem>) => void;
-  deleteItem: (id: number) => void;
-  toggleAvailability: (id: number) => void;
-  toggleBestseller: (id: number) => void;
+  isLoading: boolean;
+  fetchMenu: () => Promise<void>;
+  addItem: (item: Omit<MenuItem, "id">) => Promise<void>;
+  updateItem: (id: number | string, updates: Partial<MenuItem>) => Promise<void>;
+  deleteItem: (id: number | string) => Promise<void>;
+  toggleAvailability: (id: number | string) => Promise<void>;
+  toggleBestseller: (id: number | string) => Promise<void>;
   resetToDefault: () => void;
   syncWithDefaults: () => void;
 };
@@ -19,66 +23,132 @@ export const useMenuStore = create<MenuStore>()(
   persist(
     (set, get) => ({
       items: initialItems,
+      isLoading: false,
 
-      addItem: (item) => {
-        const newItem: MenuItem = {
-          ...item,
-          id: Date.now(),
-          isAvailable: item.isAvailable ?? true,
-        };
-        set({ items: [newItem, ...get().items] });
+      // 👇 1. Backend se Menu Fetch Karna
+      fetchMenu: async () => {
+        set({ isLoading: true });
+        try {
+          const response = await axios.get(`${API_URL}/menu`);
+          
+          if (response.data && response.data.length > 0) {
+            // MongoDB se aaye _id ko frontend ke id me map kar rahe hain
+            const formattedItems = response.data.map((item: any) => ({
+              ...item,
+              id: item._id, 
+            }));
+            set({ items: formattedItems, isLoading: false });
+          } else {
+            // Agar database khali hai, toh fallback defaults use karo
+            set({ items: initialItems, isLoading: false });
+          }
+        } catch (error) {
+          console.error("Failed to fetch menu from backend:", error);
+          set({ isLoading: false });
+        }
       },
 
-      updateItem: (id, updates) => {
-        set({
-          items: get().items.map((i) =>
-            i.id === id ? { ...i, ...updates } : i
-          ),
-        });
+      // 👇 2. Naya Item Add Karna
+      addItem: async (item) => {
+        try {
+          const response = await axios.post(`${API_URL}/menu`, item);
+          const newItem = { 
+            ...response.data, 
+            id: response.data._id 
+          };
+          set({ items: [newItem, ...get().items] });
+        } catch (error) {
+          console.error("Error adding item to backend:", error);
+        }
       },
 
-      deleteItem: (id) => {
-        set({ items: get().items.filter((i) => i.id !== id) });
+      // 👇 3. Item Update Karna
+      updateItem: async (id, updates) => {
+        try {
+          const response = await axios.put(`${API_URL}/menu/${id}`, updates);
+          const updatedItem = { 
+            ...response.data, 
+            id: response.data._id 
+          };
+          set({
+            items: get().items.map((i) => (i.id === id ? updatedItem : i)),
+          });
+        } catch (error) {
+          console.error("Error updating item in backend:", error);
+        }
       },
 
-      toggleAvailability: (id) => {
-        set({
-          items: get().items.map((i) =>
-            i.id === id ? { ...i, isAvailable: !i.isAvailable } : i
-          ),
-        });
+      // 👇 4. Item Delete Karna
+      deleteItem: async (id) => {
+        try {
+          await axios.delete(`${API_URL}/menu/${id}`);
+          set({ items: get().items.filter((i) => i.id !== id) });
+        } catch (error) {
+          console.error("Error deleting item from backend:", error);
+        }
       },
 
-      toggleBestseller: (id) => {
-        set({
-          items: get().items.map((i) =>
-            i.id === id ? { ...i, isBestseller: !i.isBestseller } : i
-          ),
-        });
+      // 👇 5. Availability Toggle Karna (Out of Stock)
+      toggleAvailability: async (id) => {
+        try {
+          const item = get().items.find((i) => i.id === id);
+          if (!item) return;
+
+          const response = await axios.put(`${API_URL}/menu/${id}`, {
+            isAvailable: !item.isAvailable,
+          });
+          
+          const updatedItem = { 
+            ...response.data, 
+            id: response.data._id 
+          };
+          
+          set({
+            items: get().items.map((i) => (i.id === id ? updatedItem : i)),
+          });
+        } catch (error) {
+          console.error("Error toggling availability:", error);
+        }
       },
 
+      // 👇 6. Bestseller Toggle Karna
+      toggleBestseller: async (id) => {
+        try {
+          const item = get().items.find((i) => i.id === id);
+          if (!item) return;
+
+          const response = await axios.put(`${API_URL}/menu/${id}`, {
+            isBestseller: !item.isBestseller,
+          });
+
+          const updatedItem = { 
+            ...response.data, 
+            id: response.data._id 
+          };
+
+          set({
+            items: get().items.map((i) => (i.id === id ? updatedItem : i)),
+          });
+        } catch (error) {
+          console.error("Error toggling bestseller:", error);
+        }
+      },
+
+      // Note: Ye dono functions abhi local state ke liye rakhe gaye hain
       resetToDefault: () => set({ items: initialItems }),
 
-      // Smart merge: keep user-edited items but add new defaults
       syncWithDefaults: () => {
         const currentItems = get().items;
         const currentIds = new Set(currentItems.map((i) => i.id));
+        const newDefaults = initialItems.filter((item) => !currentIds.has(item.id));
 
-        // Find new default items (which don't exist in current items)
-        const newDefaults = initialItems.filter(
-          (item) => !currentIds.has(item.id)
-        );
-
-        // Update existing items with new data fields (variants, addOns, etc.)
         const updatedCurrent = currentItems.map((current) => {
           const defaultItem = initialItems.find((d) => d.id === current.id);
           if (defaultItem) {
-            // Merge: keep user changes to availability/bestseller, but update other data
             return {
               ...defaultItem,
               isAvailable: current.isAvailable,
               isBestseller: current.isBestseller,
-              // User can also edit name, price, etc. — we keep default for safety
             };
           }
           return current;
@@ -92,7 +162,7 @@ export const useMenuStore = create<MenuStore>()(
       version: STORE_VERSION,
       skipHydration: true,
       migrate: (persistedState: unknown, version: number) => {
-        // When version changes, reset to fresh defaults
+        // Backend connect hone ke baad local storage reset kar denge
         if (version !== STORE_VERSION) {
           return { items: initialItems } as MenuStore;
         }
