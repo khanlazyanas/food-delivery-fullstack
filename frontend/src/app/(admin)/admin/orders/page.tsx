@@ -45,10 +45,10 @@ export default function AdminOrdersPage() {
 
   // 👇 Backend se orders fetch karne ke liye
   useEffect(() => {
-    fetchOrders();
-    useTripStore.persist.rehydrate();
-    setMounted(true);
-  }, [fetchOrders]);
+  fetchOrders();
+  useTripStore.getState().fetchDrivers(); 
+  setMounted(true);
+}, [fetchOrders]);
 
   if (!mounted) {
     return <div className="text-slate-500 p-4">Loading orders...</div>;

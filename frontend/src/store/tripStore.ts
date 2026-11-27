@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import axios from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 // ================= TYPES =================
 export type TripStatus =
@@ -31,18 +33,15 @@ export type Trip = {
     specialRequests?: string;
   };
   pickupLocation: string;
-  pickupDate: string; // YYYY-MM-DD
-  pickupTime: string; // HH:mm
+  pickupDate: string;
+  pickupTime: string;
   passengers: number;
   returnLocation: string;
   serviceCharges: number;
   paymentMethod: "online" | "cod";
   paymentStatus: "pending" | "paid" | "refunded";
-  
-  // 👇 NAYA: PRD Section 24 Payment Management
   transactionId?: string;
   refundStatus?: "none" | "requested" | "processed";
-
   status: TripStatus;
   driverId?: string;
   driverInfo?: Driver;
@@ -51,218 +50,195 @@ export type Trip = {
   updatedAt?: string;
 };
 
-// ================= DEFAULT DRIVERS =================
-const defaultDrivers: Driver[] = [
-  {
-    id: "DRV001",
-    name: "Rahul Sharma",
-    phone: "9876543210",
-    vehicleNumber: "MH 01 AB 1234",
-    vehicleType: "Sedan",
-    rating: 4.8,
-    isAvailable: true,
-  },
-  {
-    id: "DRV002",
-    name: "Amit Kumar",
-    phone: "9876543211",
-    vehicleNumber: "MH 01 CD 5678",
-    vehicleType: "SUV",
-    rating: 4.9,
-    isAvailable: true,
-  },
-  {
-    id: "DRV003",
-    name: "Suresh Patil",
-    phone: "9876543212",
-    vehicleNumber: "MH 01 EF 9012",
-    vehicleType: "Sedan",
-    rating: 4.7,
-    isAvailable: true,
-  },
-];
-
-// ================= STORE =================
 type TripStore = {
   trips: Trip[];
   drivers: Driver[];
+  isLoading: boolean;
 
-  // Trip management
-  addTrip: (trip: Omit<Trip, "id" | "createdAt" | "statusHistory" | "transactionId" | "refundStatus">) => Trip;
-  updateTripStatus: (id: string, status: TripStatus) => void;
-  assignDriver: (tripId: string, driverId: string) => void;
-  cancelTrip: (id: string) => void;
+  // Fetch Data
+  fetchTrips: () => Promise<void>;
+  fetchDrivers: () => Promise<void>;
+
+  // Trip Management
+  addTrip: (trip: Omit<Trip, "id" | "createdAt" | "statusHistory" | "transactionId" | "refundStatus">) => Promise<Trip | null>;
+  updateTripStatus: (id: string, status: TripStatus) => Promise<void>;
+  assignDriver: (tripId: string, driverId: string) => Promise<void>;
+  cancelTrip: (id: string) => Promise<void>;
   getTripById: (id: string) => Trip | undefined;
-  
-  // 👇 NAYA: Payment Management
-  updateTransactionId: (id: string, transactionId: string) => void;
-  updateRefundStatus: (id: string, status: "none" | "requested" | "processed") => void;
 
-  // Driver management
-  addDriver: (driver: Omit<Driver, "id">) => void;
-  updateDriver: (id: string, updates: Partial<Driver>) => void;
-  deleteDriver: (id: string) => void;
-  toggleDriverAvailability: (id: string) => void;
-
-  resetToDefault: () => void;
+  // Driver Management
+  addDriver: (driver: Omit<Driver, "id">) => Promise<void>;
+  updateDriver: (id: string, updates: Partial<Driver>) => Promise<void>;
+  deleteDriver: (id: string) => Promise<void>;
+  toggleDriverAvailability: (id: string) => Promise<void>;
 };
 
-export const useTripStore = create<TripStore>()(
-  persist(
-    (set, get) => ({
-      trips: [],
-      drivers: defaultDrivers,
+export const useTripStore = create<TripStore>((set, get) => ({
+  trips: [],
+  drivers: [],
+  isLoading: false,
 
-      // ============ TRIP MANAGEMENT ============
-      addTrip: (trip) => {
-        const newTrip: Trip = {
-          ...trip,
-          id: "TRP" + Date.now().toString().slice(-8),
-          createdAt: new Date().toISOString(),
-          transactionId: `TXN-TRP-${Date.now().toString().slice(-6)}`,
-          refundStatus: "none",
-          statusHistory: [
-            { status: "requested", timestamp: new Date().toISOString() },
-          ],
-        };
-        set({ trips: [newTrip, ...get().trips] });
-        return newTrip;
-      },
+  // ================= FETCH =================
+  fetchTrips: async () => {
+    try {
+      const response = await axios.get(`${API_URL}/trips`);
+      const formattedTrips = response.data.map((t: any) => {
+        let driverInfo: Driver | undefined = undefined;
+        let driverId = t.driver?._id || t.driver;
 
-      updateTripStatus: (id, status) => {
-        const now = new Date().toISOString();
-        set({
-          trips: get().trips.map((t) =>
-            t.id === id
-              ? {
-                  ...t,
-                  status,
-                  updatedAt: now,
-                  statusHistory: [
-                    ...t.statusHistory,
-                    { status, timestamp: now },
-                  ],
-                }
-              : t
-          ),
-        });
-      },
-
-      assignDriver: (tripId, driverId) => {
-        const driver = get().drivers.find((d) => d.id === driverId);
-        if (!driver) return;
-        const now = new Date().toISOString();
-        set({
-          trips: get().trips.map((t) =>
-            t.id === tripId
-              ? {
-                  ...t,
-                  driverId,
-                  driverInfo: driver,
-                  status: "driver-assigned" as TripStatus,
-                  updatedAt: now,
-                  statusHistory: [
-                    ...t.statusHistory,
-                    { status: "driver-assigned" as TripStatus, timestamp: now },
-                  ],
-                }
-              : t
-          ),
-        });
-      },
-
-      cancelTrip: (id) => {
-        const now = new Date().toISOString();
-        set({
-          trips: get().trips.map((t) =>
-            t.id === id
-              ? {
-                  ...t,
-                  status: "cancelled" as TripStatus,
-                  paymentStatus:
-                    t.paymentStatus === "paid"
-                      ? ("refunded" as const)
-                      : t.paymentStatus,
-                  refundStatus: t.paymentStatus === "paid" ? "requested" : "none",
-                  updatedAt: now,
-                  statusHistory: [
-                    ...t.statusHistory,
-                    { status: "cancelled" as TripStatus, timestamp: now },
-                  ],
-                }
-              : t
-          ),
-        });
-      },
-
-      getTripById: (id) => get().trips.find((t) => t.id === id),
-
-      // 👇 NAYA: Payment functions
-      updateTransactionId: (id, transactionId) => {
-        set({
-          trips: get().trips.map((t) =>
-            t.id === id ? { ...t, transactionId } : t
-          ),
-        });
-      },
-
-      updateRefundStatus: (id, status) => {
-        set({
-          trips: get().trips.map((t) =>
-            t.id === id ? { ...t, refundStatus: status } : t
-          ),
-        });
-      },
-
-      // ============ DRIVER MANAGEMENT ============
-      addDriver: (driver) => {
-        const newDriver: Driver = {
-          ...driver,
-          id: "DRV" + Date.now().toString().slice(-6),
-        };
-        set({ drivers: [...get().drivers, newDriver] });
-      },
-
-      updateDriver: (id, updates) => {
-        set({
-          drivers: get().drivers.map((d) =>
-            d.id === id ? { ...d, ...updates } : d
-          ),
-        });
-      },
-
-      deleteDriver: (id) => {
-        set({ drivers: get().drivers.filter((d) => d.id !== id) });
-      },
-
-      toggleDriverAvailability: (id) => {
-        set({
-          drivers: get().drivers.map((d) =>
-            d.id === id ? { ...d, isAvailable: !d.isAvailable } : d
-          ),
-        });
-      },
-
-      resetToDefault: () => set({ trips: [], drivers: defaultDrivers }),
-    }),
-    {
-      name: "foodiehub-trips",
-      version: 2, // 👈 Bumped for new fields
-      skipHydration: true,
-      migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as Partial<TripStore>;
-        
-        // Version 1 -> 2: Add new payment fields
-        if (version < 2 && state?.trips) {
-          state.trips = state.trips.map((t) => ({
-            ...t,
-            transactionId: t.transactionId || `TXN-TRP-${t.id.slice(-6)}`,
-            refundStatus: t.paymentStatus === "refunded" ? "processed" : "none",
-          }));
+        if (t.driver && typeof t.driver === "object") {
+          driverInfo = {
+            id: t.driver._id,
+            name: t.driver.name,
+            phone: t.driver.phone,
+            vehicleNumber: t.driver.vehicleNumber,
+            vehicleType: t.driver.vehicleType,
+            rating: t.driver.rating,
+            isAvailable: t.driver.isAvailable,
+          };
         }
-        
-        return state as TripStore;
-      },
+
+        return {
+          ...t,
+          id: t._id,
+          driverId,
+          driverInfo,
+          transactionId: t.transactionId || `TXN-TRP-${t._id.slice(-6)}`,
+          refundStatus: t.paymentStatus === "refunded" ? "processed" : "none",
+        };
+      });
+      set({ trips: formattedTrips });
+    } catch (error) {
+      console.error("Error fetching trips:", error);
     }
-  )
-);
+  },
+
+  fetchDrivers: async () => {
+    try {
+      const response = await axios.get(`${API_URL}/trips/drivers`);
+      const formattedDrivers = response.data.map((d: any) => ({
+        ...d,
+        id: d._id,
+      }));
+      set({ drivers: formattedDrivers });
+    } catch (error) {
+      console.error("Error fetching drivers:", error);
+    }
+  },
+
+  // ================= TRIP MANAGEMENT =================
+  addTrip: async (tripData) => {
+    try {
+      const response = await axios.post(`${API_URL}/trips`, tripData);
+      const newTrip = {
+        ...response.data,
+        id: response.data._id,
+        transactionId: `TXN-TRP-${response.data._id.slice(-6)}`,
+        refundStatus: "none",
+        statusHistory: [{ status: "requested", timestamp: new Date().toISOString() }],
+      };
+      set({ trips: [newTrip, ...get().trips] });
+      return newTrip;
+    } catch (error) {
+      console.error("Error adding trip:", error);
+      return null;
+    }
+  },
+
+  updateTripStatus: async (id, status) => {
+    try {
+      const response = await axios.put(`${API_URL}/trips/${id}/status`, { status });
+      const updatedTrip = { ...response.data, id: response.data._id };
+      set({
+        trips: get().trips.map((t) => (t.id === id ? { ...t, ...updatedTrip } : t)),
+      });
+    } catch (error) {
+      console.error("Error updating trip status:", error);
+    }
+  },
+
+  assignDriver: async (tripId, driverId) => {
+    try {
+      const response = await axios.put(`${API_URL}/trips/${tripId}/assign`, { driverId });
+      const t = response.data;
+      
+      let driverInfo: Driver | undefined;
+      const driver = get().drivers.find((d) => d.id === driverId);
+      if (driver) {
+        driverInfo = driver;
+      } else if (t.driverInfo) {
+        driverInfo = {
+          id: driverId,
+          name: t.driverInfo.name,
+          phone: t.driverInfo.phone,
+          vehicleNumber: t.driverInfo.vehicleNumber,
+          vehicleType: "N/A",
+          rating: 4.5,
+          isAvailable: true,
+        };
+      }
+
+      const updatedTrip = {
+        ...t,
+        id: t._id,
+        driverId,
+        driverInfo,
+      };
+
+      set({
+        trips: get().trips.map((trip) => (trip.id === tripId ? updatedTrip : trip)),
+      });
+    } catch (error) {
+      console.error("Error assigning driver:", error);
+    }
+  },
+
+  cancelTrip: async (id) => {
+    await get().updateTripStatus(id, "cancelled");
+  },
+
+  getTripById: (id) => get().trips.find((t) => t.id === id),
+
+  // ================= DRIVER MANAGEMENT =================
+  addDriver: async (driverData) => {
+    try {
+      const response = await axios.post(`${API_URL}/trips/drivers`, driverData);
+      const newDriver = { ...response.data, id: response.data._id };
+      set({ drivers: [...get().drivers, newDriver] });
+    } catch (error) {
+      console.error("Error adding driver:", error);
+    }
+  },
+
+  updateDriver: async (id, updates) => {
+    try {
+      // Backend me update route nahi hai, isliye local state update kar rahe hain (ya tum backend me route add kar sakte ho)
+      set({
+        drivers: get().drivers.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+      });
+    } catch (error) {
+      console.error("Error updating driver:", error);
+    }
+  },
+
+  deleteDriver: async (id) => {
+    try {
+      // Backend me delete route nahi hai abhi, local state update
+      set({ drivers: get().drivers.filter((d) => d.id !== id) });
+    } catch (error) {
+      console.error("Error deleting driver:", error);
+    }
+  },
+
+  toggleDriverAvailability: async (id) => {
+    try {
+      const response = await axios.put(`${API_URL}/trips/drivers/${id}/toggle`);
+      const updatedDriver = { ...response.data, id: response.data._id };
+      set({
+        drivers: get().drivers.map((d) => (d.id === id ? updatedDriver : d)),
+      });
+    } catch (error) {
+      console.error("Error toggling driver availability:", error);
+    }
+  },
+}));
