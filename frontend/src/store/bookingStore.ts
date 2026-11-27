@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import axios from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 // ================= TYPES =================
 export type Table = {
@@ -27,19 +29,16 @@ export type Booking = {
     email?: string;
     specialRequests?: string;
   };
-  date: string; // YYYY-MM-DD
-  time: string; // HH:mm
+  date: string;
+  time: string;
   guests: number;
   estimatedBill: number;
   advancePaid: number;
   advancePercent: number;
   paymentMethod: "online" | "cod";
   paymentStatus: "pending" | "paid" | "refunded";
-  
-  // 👇 NAYA: PRD Section 24 Payment Management
   transactionId?: string;
   refundStatus?: "none" | "requested" | "processed";
-
   status: BookingStatus;
   createdAt: string;
   updatedAt?: string;
@@ -47,193 +46,155 @@ export type Booking = {
   cancellationReason?: string;
 };
 
-// ================= DEFAULT TABLES =================
-const defaultTables: Table[] = [
-  { id: "T1", number: "T-01", capacity: 2, section: "Indoor", isActive: true },
-  { id: "T2", number: "T-02", capacity: 2, section: "Indoor", isActive: true },
-  { id: "T3", number: "T-03", capacity: 4, section: "Indoor", isActive: true },
-  { id: "T4", number: "T-04", capacity: 4, section: "Indoor", isActive: true },
-  { id: "T5", number: "T-05", capacity: 6, section: "Indoor", isActive: true },
-  { id: "T6", number: "T-06", capacity: 4, section: "Outdoor", isActive: true },
-  { id: "T7", number: "T-07", capacity: 6, section: "Outdoor", isActive: true },
-  { id: "T8", number: "T-08", capacity: 8, section: "Private", isActive: true },
-  { id: "T9", number: "T-09", capacity: 10, section: "Private", isActive: true },
-  { id: "T10", number: "T-10", capacity: 4, section: "Rooftop", isActive: true },
-];
-
-// ================= STORE =================
 type BookingStore = {
   tables: Table[];
   bookings: Booking[];
+  isLoading: boolean;
 
-  // Table management
-  addTable: (table: Omit<Table, "id">) => void;
-  updateTable: (id: string, updates: Partial<Table>) => void;
-  deleteTable: (id: string) => void;
-  toggleTableActive: (id: string) => void;
+  // Fetch
+  fetchTables: () => Promise<void>;
+  fetchBookings: () => Promise<void>;
+
+  // Table management (Admin)
+  addTable: (table: Omit<Table, "id">) => Promise<void>;
 
   // Booking management
-  addBooking: (booking: Omit<Booking, "id" | "createdAt" | "refundStatus">) => Booking;
-  updateBookingStatus: (id: string, status: BookingStatus) => void;
-  cancelBooking: (id: string, reason?: string) => void;
+  addBooking: (booking: any) => Promise<Booking | null>;
+  updateBookingStatus: (id: string, status: BookingStatus) => Promise<void>;
+  cancelBooking: (id: string, reason?: string) => Promise<void>;
+  updateBookingDateTime: (id: string, date: string, time: string) => void; // Frontend only for now
   getBookingById: (id: string) => Booking | undefined;
   
-  // 👇 NAYA: Payment Management
-  updateTransactionId: (id: string, transactionId: string) => void;
-  updateRefundStatus: (id: string, status: "none" | "requested" | "processed") => void;
-
   // Availability
-  isTableAvailable: (
-    tableId: string,
-    date: string,
-    time: string
-  ) => boolean;
+  isTableAvailable: (tableId: string, date: string, time: string) => boolean;
   getAvailableTables: (date: string, time: string, guests: number) => Table[];
-
-  resetToDefault: () => void;
 };
 
-export const useBookingStore = create<BookingStore>()(
-  persist(
-    (set, get) => ({
-      tables: defaultTables,
-      bookings: [],
+export const useBookingStore = create<BookingStore>((set, get) => ({
+  tables: [],
+  bookings: [],
+  isLoading: false,
 
-      // ============ TABLE MANAGEMENT ============
-      addTable: (table) => {
-        const newTable: Table = {
-          ...table,
-          id: "T" + Date.now().toString().slice(-6),
-        };
-        set({ tables: [...get().tables, newTable] });
-      },
-
-      updateTable: (id, updates) => {
-        set({
-          tables: get().tables.map((t) =>
-            t.id === id ? { ...t, ...updates } : t
-          ),
-        });
-      },
-
-      deleteTable: (id) => {
-        set({ tables: get().tables.filter((t) => t.id !== id) });
-      },
-
-      toggleTableActive: (id) => {
-        set({
-          tables: get().tables.map((t) =>
-            t.id === id ? { ...t, isActive: !t.isActive } : t
-          ),
-        });
-      },
-
-      // ============ BOOKING MANAGEMENT ============
-      addBooking: (booking) => {
-        const newBooking: Booking = {
-          ...booking,
-          id: "BK" + Date.now().toString().slice(-8),
-          createdAt: new Date().toISOString(),
-          refundStatus: "none", // Default refund status
-          transactionId: booking.transactionId || `TXN-BK-${Date.now().toString().slice(-6)}`, // Auto-generate Txn ID for demo
-        };
-        set({ bookings: [newBooking, ...get().bookings] });
-        return newBooking;
-      },
-
-      updateBookingStatus: (id, status) => {
-        set({
-          bookings: get().bookings.map((b) =>
-            b.id === id
-              ? { ...b, status, updatedAt: new Date().toISOString() }
-              : b
-          ),
-        });
-      },
-
-      cancelBooking: (id, reason) => {
-        set({
-          bookings: get().bookings.map((b) =>
-            b.id === id
-              ? {
-                  ...b,
-                  status: "cancelled" as BookingStatus,
-                  cancelledAt: new Date().toISOString(),
-                  cancellationReason: reason,
-                  updatedAt: new Date().toISOString(),
-                  paymentStatus:
-                    b.paymentStatus === "paid"
-                      ? ("refunded" as const)
-                      : b.paymentStatus,
-                  refundStatus: b.paymentStatus === "paid" ? "requested" : "none",
-                }
-              : b
-          ),
-        });
-      },
-
-      getBookingById: (id) => get().bookings.find((b) => b.id === id),
-
-      // 👇 NAYA: Payment functions
-      updateTransactionId: (id, transactionId) => {
-        set({
-          bookings: get().bookings.map((b) =>
-            b.id === id ? { ...b, transactionId } : b
-          ),
-        });
-      },
-
-      updateRefundStatus: (id, status) => {
-        set({
-          bookings: get().bookings.map((b) =>
-            b.id === id ? { ...b, refundStatus: status } : b
-          ),
-        });
-      },
-
-      // ============ AVAILABILITY ============
-      isTableAvailable: (tableId, date, time) => {
-        const { bookings } = get();
-        const conflict = bookings.find(
-          (b) =>
-            b.tableId === tableId &&
-            b.date === date &&
-            b.time === time &&
-            (b.status === "confirmed" || b.status === "pending")
-        );
-        return !conflict;
-      },
-
-      getAvailableTables: (date, time, guests) => {
-        const { tables, isTableAvailable } = get();
-        return tables.filter(
-          (t) =>
-            t.isActive &&
-            t.capacity >= guests &&
-            isTableAvailable(t.id, date, time)
-        );
-      },
-
-      resetToDefault: () => set({ tables: defaultTables, bookings: [] }),
-    }),
-    {
-      name: "foodiehub-bookings",
-      version: 2, // 👈 Bumped for new fields
-      skipHydration: true,
-      migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as Partial<BookingStore>;
-        
-        // Version 1 -> 2: Add new payment fields
-        if (version < 2 && state?.bookings) {
-          state.bookings = state.bookings.map((b) => ({
-            ...b,
-            transactionId: b.transactionId || `TXN-BK-${b.id.slice(-6)}`,
-            refundStatus: b.paymentStatus === "refunded" ? "processed" : "none",
-          }));
-        }
-        
-        return state as BookingStore;
-      },
+  // 👇 Backend se Tables fetch karo
+  fetchTables: async () => {
+    try {
+      const response = await axios.get(`${API_URL}/bookings/tables`);
+      const formattedTables = response.data.map((t: any) => ({
+        ...t,
+        id: t._id, // MongoDB ID ko frontend id me map kiya
+      }));
+      set({ tables: formattedTables });
+    } catch (error) {
+      console.error("Failed to fetch tables:", error);
     }
-  )
-);
+  },
+
+  // 👇 Backend se Bookings fetch karo
+  fetchBookings: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get(`${API_URL}/bookings`);
+      // Backend data ko frontend format me map kar rahe hain
+      const formattedBookings = response.data.map((b: any) => ({
+        ...b,
+        id: b._id,
+        tableId: b.table?._id || b.table,
+        tableNumber: b.table?.number || "N/A", // Agar populate nahi hua toh N/A
+        advancePercent: 50, // Dummy value, backend me add karni hogi
+        transactionId: b.transactionId || `TXN-BK-${b._id.slice(-6)}`,
+        refundStatus: b.paymentStatus === "refunded" ? "processed" : "none",
+      }));
+      set({ bookings: formattedBookings, isLoading: false });
+    } catch (error) {
+      console.error("Failed to fetch bookings:", error);
+      set({ isLoading: false });
+    }
+  },
+
+  // Table Add (Admin)
+  addTable: async (table) => {
+    try {
+      const response = await axios.post(`${API_URL}/bookings/tables`, table);
+      const newTable = { ...response.data, id: response.data._id };
+      set({ tables: [...get().tables, newTable] });
+    } catch (error) {
+      console.error("Failed to add table:", error);
+    }
+  },
+
+  // 👇 Naya Booking Create karo
+  addBooking: async (bookingData) => {
+    try {
+      const response = await axios.post(`${API_URL}/bookings`, bookingData);
+      const b = response.data;
+      
+      const newBooking: Booking = {
+        ...b,
+        id: b._id,
+        tableId: b.table,
+        tableNumber: bookingData.tableNumber || "N/A",
+        advancePercent: bookingData.advancePercent,
+      };
+
+      set({ bookings: [newBooking, ...get().bookings] });
+      return newBooking;
+    } catch (error) {
+      console.error("Error creating booking:", error);
+      return null;
+    }
+  },
+
+  // 👇 Status Update karo
+  updateBookingStatus: async (id, status) => {
+    try {
+      const response = await axios.put(`${API_URL}/bookings/${id}/status`, { status });
+      const updated = response.data;
+      
+      set({
+        bookings: get().bookings.map((b) =>
+          b.id === id ? { ...b, status: updated.status } : b
+        ),
+      });
+    } catch (error) {
+      console.error("Error updating booking status:", error);
+    }
+  },
+
+  cancelBooking: async (id, reason) => {
+    await get().updateBookingStatus(id, "cancelled");
+  },
+
+  // 👇 Reschedule (Backend me route nahi hai abhi, isliye local state update)
+  updateBookingDateTime: (id, date, time) => {
+    set({
+      bookings: get().bookings.map((b) =>
+        b.id === id ? { ...b, date, time, updatedAt: new Date().toISOString() } : b
+      ),
+    });
+  },
+
+  getBookingById: (id) => get().bookings.find((b) => b.id === id),
+
+  // ============ AVAILABILITY ============
+  isTableAvailable: (tableId, date, time) => {
+    const { bookings } = get();
+    const conflict = bookings.find(
+      (b) =>
+        b.tableId === tableId &&
+        b.date === date &&
+        b.time === time &&
+        (b.status === "confirmed" || b.status === "pending")
+    );
+    return !conflict;
+  },
+
+   getAvailableTables: (date, time, guests) => {
+    const tables = get().tables;
+    return tables.filter(
+      (t: Table) => // 👈 Yahan 'Table' type define kar diya hai
+        t.isActive &&
+        t.capacity >= guests &&
+        get().isTableAvailable(t.id, date, time)
+    );
+  },
+}));
