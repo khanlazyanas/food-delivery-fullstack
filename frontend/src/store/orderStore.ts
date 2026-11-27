@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import axios from "axios";
 import { CartItem } from "./cartStore";
 
-// ================= ORDER STATUS FLOW (PRD 5) =================
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
 export type OrderStatus =
   | "placed"
   | "confirmed"
@@ -14,10 +15,8 @@ export type OrderStatus =
   | "delivered"
   | "cancelled";
 
-// ================= PAYMENT STATUS =================
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
-// ================= DRIVER INFO =================
 export type DriverInfo = {
   id: string;
   name: string;
@@ -45,11 +44,8 @@ export type Order = {
   orderType: "delivery" | "pickup";
   paymentMethod: "cod" | "online";
   paymentStatus: PaymentStatus;
-  
-  // 👇 NAYA: PRD Section 24 Payment Management
   transactionId?: string;
   refundStatus?: "none" | "requested" | "processed";
-
   status: OrderStatus;
   driverInfo?: DriverInfo;
   estimatedDelivery?: string;
@@ -63,160 +59,80 @@ export type Order = {
 
 type OrderStore = {
   orders: Order[];
-  addOrder: (order: Order) => void;
+  isLoading: boolean;
+  fetchOrders: () => Promise<void>;
+  placeOrder: (orderData: any) => Promise<Order | null>;
   getOrderById: (id: string) => Order | undefined;
-  updateOrderStatus: (id: string, status: OrderStatus) => void;
-  updatePaymentStatus: (id: string, status: PaymentStatus) => void;
-  assignDriver: (id: string, driver: DriverInfo) => void;
-  cancelOrder: (id: string) => void;
-  getOrderTimeline: (id: string) => { status: OrderStatus; timestamp: string }[];
-  
-  // 👇 NAYA: Payment Management functions
-  updateTransactionId: (id: string, transactionId: string) => void;
-  updateRefundStatus: (id: string, status: "none" | "requested" | "processed") => void;
+  updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
+  assignDriver: (id: string, driver: DriverInfo) => Promise<void>;
+  cancelOrder: (id: string) => Promise<void>;
 };
 
-export const useOrderStore = create<OrderStore>()(
-  persist(
-    (set, get) => ({
-      orders: [],
+export const useOrderStore = create<OrderStore>((set, get) => ({
+  orders: [],
+  isLoading: false,
 
-      addOrder: (order) => {
-        const now = new Date().toISOString();
-        const enrichedOrder: Order = {
-          ...order,
-          updatedAt: now,
-          paymentStatus:
-            order.paymentMethod === "online" ? "paid" : "pending",
-          transactionId: `TXN-ORD-${Date.now().toString().slice(-6)}`, // Auto-generate
-          refundStatus: "none", // Default
-          statusHistory: [
-            { status: order.status, timestamp: order.createdAt || now },
-          ],
-        };
-        set({ orders: [enrichedOrder, ...get().orders] });
-      },
-
-      getOrderById: (id) => get().orders.find((o) => o.id === id),
-
-      updateOrderStatus: (id, status) => {
-        const now = new Date().toISOString();
-        set({
-          orders: get().orders.map((o) =>
-            o.id === id
-              ? {
-                  ...o,
-                  status,
-                  updatedAt: now,
-                  statusHistory: [
-                    ...(o.statusHistory || []),
-                    { status, timestamp: now },
-                  ],
-                }
-              : o
-          ),
-        });
-      },
-
-      updatePaymentStatus: (id, paymentStatus) => {
-        set({
-          orders: get().orders.map((o) =>
-            o.id === id
-              ? { ...o, paymentStatus, updatedAt: new Date().toISOString() }
-              : o
-          ),
-        });
-      },
-
-      assignDriver: (id, driverInfo) => {
-        const now = new Date().toISOString();
-        set({
-          orders: get().orders.map((o) =>
-            o.id === id
-              ? {
-                  ...o,
-                  driverInfo,
-                  status: "driver-assigned" as OrderStatus,
-                  updatedAt: now,
-                  statusHistory: [
-                    ...(o.statusHistory || []),
-                    { status: "driver-assigned" as OrderStatus, timestamp: now },
-                  ],
-                }
-              : o
-          ),
-        });
-      },
-
-      cancelOrder: (id) => {
-        const now = new Date().toISOString();
-        set({
-          orders: get().orders.map((o) =>
-            o.id === id
-              ? {
-                  ...o,
-                  status: "cancelled" as OrderStatus,
-                  paymentStatus: o.paymentStatus === "paid" ? "refunded" : o.paymentStatus,
-                  refundStatus: o.paymentStatus === "paid" ? "requested" : "none", // 👈 Auto Refund Request
-                  updatedAt: now,
-                  statusHistory: [
-                    ...(o.statusHistory || []),
-                    { status: "cancelled" as OrderStatus, timestamp: now },
-                  ],
-                }
-              : o
-          ),
-        });
-      },
-
-      getOrderTimeline: (id) => {
-        const order = get().orders.find((o) => o.id === id);
-        return order?.statusHistory || [];
-      },
-
-      // 👇 NAYA: Payment functions
-      updateTransactionId: (id, transactionId) => {
-        set({
-          orders: get().orders.map((o) =>
-            o.id === id ? { ...o, transactionId } : o
-          ),
-        });
-      },
-
-      updateRefundStatus: (id, status) => {
-        set({
-          orders: get().orders.map((o) =>
-            o.id === id ? { ...o, refundStatus: status } : o
-          ),
-        });
-      },
-    }),
-    {
-      name: "foodiehub-orders",
-      version: 4, // 👈 Bumped for Payment Management
-      skipHydration: true,
-      migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as { orders: Order[] };
-        
-        if (version < 4 && state?.orders) {
-          // v1/v2/v3 se v4 me upgrade
-          const migratedOrders = state.orders.map((o) => ({
-            ...o,
-            transactionId: o.transactionId || `TXN-ORD-${o.id.slice(-6)}`,
-            refundStatus: o.paymentStatus === "refunded" ? "processed" : "none",
-            paymentStatus:
-              o.paymentStatus ||
-              (o.paymentMethod === "online" ? "paid" : "pending"),
-            updatedAt: o.updatedAt || o.createdAt,
-            statusHistory: o.statusHistory || [
-              { status: o.status, timestamp: o.createdAt },
-            ],
-          }));
-          return { orders: migratedOrders } as unknown as OrderStore;
-        }
-        
-        return persistedState as OrderStore;
-      },
+  // 👇 1. Backend se saare orders fetch karna
+  fetchOrders: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get(`${API_URL}/orders`);
+      const formattedOrders = response.data.map((o: any) => ({
+        ...o,
+        id: o._id,
+      }));
+      set({ orders: formattedOrders, isLoading: false });
+    } catch (error) {
+      console.error("Failed to fetch orders:", error);
+      set({ isLoading: false });
     }
-  )
-);
+  },
+
+  // 👇 2. Naya order place karna
+  placeOrder: async (orderData) => {
+    try {
+      const response = await axios.post(`${API_URL}/orders`, orderData);
+      const newOrder = { ...response.data, id: response.data._id };
+      set({ orders: [newOrder, ...get().orders] });
+      return newOrder;
+    } catch (error) {
+      console.error("Error placing order:", error);
+      return null;
+    }
+  },
+
+  getOrderById: (id) => get().orders.find((o) => o.id === id),
+
+  // 👇 3. Order status update karna
+  updateOrderStatus: async (id, status) => {
+    try {
+      const response = await axios.put(`${API_URL}/orders/${id}/status`, { status });
+      const updatedOrder = { ...response.data, id: response.data._id };
+      set({
+        orders: get().orders.map((o) => (o.id === id ? updatedOrder : o)),
+      });
+    } catch (error) {
+      console.error("Error updating status:", error);
+    }
+  },
+
+  // 👇 4. Driver assign karna (Hum isme status update call kar rahe hain kyunki backend me alag route nahi hai abhi)
+  assignDriver: async (id, driverInfo) => {
+    try {
+      const response = await axios.put(`${API_URL}/orders/${id}/status`, { 
+        status: "driver-assigned",
+        driverInfo // Backend me IOrder me driverInfo add karna padega, filhal ye status update karega
+      });
+      const updatedOrder = { ...response.data, id: response.data._id, driverInfo };
+      set({
+        orders: get().orders.map((o) => (o.id === id ? updatedOrder : o)),
+      });
+    } catch (error) {
+      console.error("Error assigning driver:", error);
+    }
+  },
+
+  cancelOrder: async (id) => {
+    await get().updateOrderStatus(id, "cancelled");
+  },
+}));
