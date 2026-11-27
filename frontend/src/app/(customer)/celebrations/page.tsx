@@ -19,7 +19,6 @@ export default function CelebrationsPage() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    useCelebrationStore.persist.rehydrate();
     setMounted(true);
   }, []);
 
