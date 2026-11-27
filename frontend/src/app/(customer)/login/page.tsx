@@ -30,6 +30,7 @@ type Step =
 export default function LoginPage() {
   const router = useRouter();
   const login = useAuthStore((state) => state.login);
+  const isLoading = useAuthStore((state) => state.isLoading); // 👈 NAYA
 
   const [step, setStep] = useState<Step>("details");
   const [isSignup, setIsSignup] = useState(false);
@@ -116,20 +117,21 @@ export default function LoginPage() {
     toast.success("OTP sent! (Use 123456 for demo)");
   };
 
-  const handleVerifyOtp = () => {
+  // 👇 UPDATE: Verify OTP aur Backend API Call
+  const handleVerifyOtp = async () => {
     if (otpString !== "123456") {
       toast.error("Invalid OTP. Use 123456 for demo");
       return;
     }
-    login({
-      id: "USR" + Date.now().toString().slice(-6),
-      name: isSignup ? name : `User ${phone.slice(-4)}`,
-      phone,
-      email: email || undefined,
-      createdAt: new Date().toISOString(),
-    });
-    toast.success(isSignup ? "Account created!" : "Welcome back!");
-    router.push("/");
+
+    const success = await login(name, phone);
+
+    if (success) {
+      toast.success(isSignup ? "Account created!" : "Welcome back!");
+      router.push("/");
+    } else {
+      toast.error("Login failed. Please check if backend is running.");
+    }
   };
 
   const handleForgotSendOtp = () => {
@@ -404,10 +406,10 @@ export default function LoginPage() {
 
               <button
                 onClick={handleVerifyOtp}
-                disabled={otpString.length !== 6}
-                className="w-full bg-[#FF6B00] hover:bg-[#E56000] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-orange-500/30"
+                disabled={otpString.length !== 6 || isLoading}
+                className="w-full bg-[#FF6B00] hover:bg-[#E56000] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-orange-500/30 flex items-center justify-center gap-2"
               >
-                Verify &amp; Continue
+                {isLoading ? "Verifying..." : "Verify & Continue"}
               </button>
 
               <div className="flex justify-between text-xs">
