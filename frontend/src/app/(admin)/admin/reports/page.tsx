@@ -31,24 +31,32 @@ type Tab = "sales" | "orders" | "bookings" | "events" | "delivery" | "customers"
 
 export default function AdminReportsPage() {
   const orders = useOrderStore((state) => state.orders);
+  const fetchOrders = useOrderStore((state) => state.fetchOrders);
+
   const bookings = useBookingStore((state) => state.bookings);
+  const fetchBookings = useBookingStore((state) => state.fetchBookings);
+
   const trips = useTripStore((state) => state.trips);
+  const fetchTrips = useTripStore((state) => state.fetchTrips);
+
   const tickets = useEventStore((state) => state.tickets);
+  const fetchTickets = useEventStore((state) => state.fetchTickets);
+
   const celebrations = useCelebrationStore((state) => state.bookings);
+  const fetchCelebrations = useCelebrationStore((state) => state.fetchBookings);
 
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("sales");
 
   useEffect(() => {
-    useOrderStore.persist.rehydrate();
-    useBookingStore.persist.rehydrate();
-    useTripStore.persist.rehydrate();
-    useEventStore.persist.rehydrate();
-    useCelebrationStore.persist.rehydrate();
+    fetchOrders();
+    fetchBookings();
+    fetchTrips();
+    fetchTickets();
+    fetchCelebrations();
     setMounted(true);
-  }, []);
+  }, [fetchOrders, fetchBookings, fetchTrips, fetchTickets, fetchCelebrations]);
 
-  // ================= DATA AGGREGATION =================
   const data = useMemo(() => {
     if (!mounted) return null;
 
@@ -66,12 +74,10 @@ export default function AdminReportsPage() {
         totalRevenue += o.total;
         if (o.paymentStatus === "pending") totalPending += o.total;
         if (o.paymentStatus === "refunded") totalRefunded += o.total;
-        
         if (o.paymentMethod === "online") onlineCount++;
         else codCount++;
       }
       uniqueCustomers.add(o.customer.phone);
-
       const d = new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
       if (!dateMap[d]) dateMap[d] = { date: d, revenue: 0, orders: 0 };
       if (o.status !== "cancelled") dateMap[d].revenue += o.total;
@@ -172,7 +178,6 @@ export default function AdminReportsPage() {
 
   return (
     <div className="max-w-7xl mx-auto pb-10">
-      {/* Header */}
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <span className="text-xs font-bold uppercase tracking-widest text-orange-600">Analytics</span>
@@ -184,31 +189,21 @@ export default function AdminReportsPage() {
         </button>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 md:mx-0 md:px-0">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as Tab)}
-              className={`flex-shrink-0 flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 rounded-xl text-xs md:text-sm font-bold whitespace-nowrap transition-all ${
-                isActive 
-                  ? "bg-[#FF6B00] text-white shadow-lg shadow-orange-500/30" 
-                  : "bg-white text-slate-600 border border-slate-200 hover:border-orange-300"
-              }`}
-            >
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as Tab)} className={`flex-shrink-0 flex items-center gap-2 px-4 py-2.5 md:px-5 md:py-3 rounded-xl text-xs md:text-sm font-bold whitespace-nowrap transition-all ${isActive ? "bg-[#FF6B00] text-white shadow-lg shadow-orange-500/30" : "bg-white text-slate-600 border border-slate-200 hover:border-orange-300"}`}>
               <Icon className="w-4 h-4" /> {tab.label}
             </button>
           )
         })}
       </div>
 
-      {/* ================= SALES TAB ================= */}
+      {/* SALES TAB */}
       {activeTab === "sales" && (
         <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <KpiCard icon={IndianRupee} label="Collected" value={`₹${data.sales.totalRevenue.toLocaleString("en-IN")}`} color="green" />
             <KpiCard icon={TrendingUp} label="Pending COD" value={`₹${data.sales.totalPending.toLocaleString("en-IN")}`} color="orange" />
@@ -243,13 +238,7 @@ export default function AdminReportsPage() {
               <div className="h-56 md:h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={[
-                        { name: 'Online', value: data.sales.onlineCount },
-                        { name: 'COD', value: data.sales.codCount }
-                      ]}
-                      innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value"
-                    >
+                    <Pie data={[{ name: 'Online', value: data.sales.onlineCount }, { name: 'COD', value: data.sales.codCount }]} innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">
                       <Cell fill="#FF6B00" />
                       <Cell fill="#3D1C00" />
                     </Pie>
@@ -263,7 +252,7 @@ export default function AdminReportsPage() {
         </div>
       )}
 
-      {/* ================= ORDERS TAB ================= */}
+      {/* ORDERS TAB */}
       {activeTab === "orders" && (
         <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
@@ -271,20 +260,13 @@ export default function AdminReportsPage() {
           </div>
           
           <div className="bg-white rounded-3xl p-4 md:p-6 border border-slate-100 shadow-sm">
-            <h2 className="text-base md:text-lg font-black text-slate-900 mb-4 md:mb-6 flex items-center gap-2">
-              <ChefHat className="w-5 h-5 text-orange-500"/> Top Selling Items
-            </h2>
+            <h2 className="text-base md:text-lg font-black text-slate-900 mb-4 md:mb-6 flex items-center gap-2"><ChefHat className="w-5 h-5 text-orange-500"/> Top Selling Items</h2>
             <div className="space-y-3 md:space-y-4">
               {data.orders.topItems.map((item, i) => (
                 <div key={item.name} className="flex items-center justify-between p-3 md:p-4 bg-slate-50 rounded-2xl border border-slate-100 gap-2">
                   <div className="flex items-center gap-3 md:gap-4 min-w-0">
-                    <div className="w-7 h-7 md:w-8 md:h-8 bg-orange-100 text-[#FF6B00] rounded-full flex items-center justify-center font-bold text-xs md:text-sm flex-shrink-0">
-                      #{i+1}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-900 text-sm md:text-base truncate">{item.name}</div>
-                      <div className="text-[10px] md:text-xs text-slate-500">{item.qty} orders</div>
-                    </div>
+                    <div className="w-7 h-7 md:w-8 md:h-8 bg-orange-100 text-[#FF6B00] rounded-full flex items-center justify-center font-bold text-xs md:text-sm flex-shrink-0">#{i+1}</div>
+                    <div className="min-w-0"><div className="font-bold text-slate-900 text-sm md:text-base truncate">{item.name}</div><div className="text-[10px] md:text-xs text-slate-500">{item.qty} orders</div></div>
                   </div>
                   <div className="font-black text-slate-900 text-sm md:text-base flex-shrink-0">₹{item.revenue.toLocaleString("en-IN")}</div>
                 </div>
@@ -295,20 +277,18 @@ export default function AdminReportsPage() {
         </div>
       )}
 
-      {/* ================= BOOKINGS TAB ================= */}
+      {/* BOOKINGS TAB */}
       {activeTab === "bookings" && (
         <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             <KpiCard icon={CalendarDays} label="Table Bookings" value={data.bookings.tables} color="blue" />
             <KpiCard icon={Ticket} label="Celebrations" value={data.bookings.celebrations} color="pink" />
-            <div className="col-span-2 md:col-span-1">
-              <KpiCard icon={IndianRupee} label="Total Revenue" value={`₹${data.bookings.revenue.toLocaleString("en-IN")}`} color="green" />
-            </div>
+            <div className="col-span-2 md:col-span-1"><KpiCard icon={IndianRupee} label="Total Revenue" value={`₹${data.bookings.revenue.toLocaleString("en-IN")}`} color="green" /></div>
           </div>
         </div>
       )}
 
-      {/* ================= EVENTS TAB ================= */}
+      {/* EVENTS TAB */}
       {activeTab === "events" && (
         <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="grid grid-cols-2 gap-3 md:gap-4">
@@ -318,7 +298,7 @@ export default function AdminReportsPage() {
         </div>
       )}
 
-      {/* ================= DELIVERY TAB ================= */}
+      {/* DELIVERY TAB */}
       {activeTab === "delivery" && (
         <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="grid grid-cols-2 gap-3 md:gap-4">
@@ -328,7 +308,7 @@ export default function AdminReportsPage() {
         </div>
       )}
 
-      {/* ================= CUSTOMERS TAB ================= */}
+      {/* CUSTOMERS TAB */}
       {activeTab === "customers" && (
         <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="grid grid-cols-2 gap-3 md:gap-4">
@@ -336,25 +316,15 @@ export default function AdminReportsPage() {
           </div>
 
           <div className="bg-white rounded-3xl p-4 md:p-6 border border-slate-100 shadow-sm">
-            <h2 className="text-base md:text-lg font-black text-slate-900 mb-4 md:mb-6 flex items-center gap-2">
-              <ArrowUpRight className="w-5 h-5 text-green-500"/> Top Customers
-            </h2>
+            <h2 className="text-base md:text-lg font-black text-slate-900 mb-4 md:mb-6 flex items-center gap-2"><ArrowUpRight className="w-5 h-5 text-green-500"/> Top Customers</h2>
             <div className="space-y-2 md:space-y-3">
               {data.customers.topCustomers.map((c, i) => (
                 <div key={c.phone} className="flex items-center justify-between p-3 md:p-4 border-b border-slate-50 last:border-0 gap-2">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 md:w-10 md:h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 flex-shrink-0 text-sm md:text-base">
-                      {c.name.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-900 text-sm md:text-base truncate">{c.name}</div>
-                      <div className="text-[10px] md:text-xs text-slate-500">{c.phone}</div>
-                    </div>
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 flex-shrink-0 text-sm md:text-base">{c.name.charAt(0)}</div>
+                    <div className="min-w-0"><div className="font-bold text-slate-900 text-sm md:text-base truncate">{c.name}</div><div className="text-[10px] md:text-xs text-slate-500">{c.phone}</div></div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="font-black text-[#FF6B00] text-sm md:text-base">₹{c.spend.toLocaleString("en-IN")}</div>
-                    <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">{c.orders} orders</div>
-                  </div>
+                  <div className="text-right flex-shrink-0"><div className="font-black text-[#FF6B00] text-sm md:text-base">₹{c.spend.toLocaleString("en-IN")}</div><div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">{c.orders} orders</div></div>
                 </div>
               ))}
               {data.customers.topCustomers.length === 0 && <div className="text-slate-500 text-sm py-4">No customer data yet.</div>}
@@ -379,9 +349,7 @@ function KpiCard({ icon: Icon, label, value, color }: { icon: React.ComponentTyp
   return (
     <div className="bg-white rounded-2xl p-3 md:p-5 border border-slate-100 shadow-sm">
       <div className="flex items-center gap-1.5 md:gap-2 mb-1.5 md:mb-3">
-        <div className={`w-7 h-7 md:w-9 md:h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${colors[color]}`}>
-          <Icon className="w-3.5 h-3.5 md:w-4 md:h-4" />
-        </div>
+        <div className={`w-7 h-7 md:w-9 md:h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${colors[color]}`}><Icon className="w-3.5 h-3.5 md:w-4 md:h-4" /></div>
         <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-500 truncate">{label}</span>
       </div>
       <div className="text-lg md:text-2xl font-black text-slate-900 truncate">{value}</div>
