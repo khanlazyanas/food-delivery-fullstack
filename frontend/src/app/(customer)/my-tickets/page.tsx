@@ -22,13 +22,14 @@ type Tab = "upcoming" | "past" | "cancelled";
 
 export default function MyTicketsPage() {
   const tickets = useEventStore((state) => state.tickets);
+  const fetchTickets = useEventStore((state) => state.fetchTickets); // 👈 Backend API
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("upcoming");
 
   useEffect(() => {
-    useEventStore.persist.rehydrate();
+    fetchTickets(); // 👈 Backend se data fetch karo
     setMounted(true);
-  }, []);
+  }, [fetchTickets]);
 
   if (!mounted) {
     return (
